@@ -1,0 +1,22 @@
+# Ignore .ipcache directory
+.ipcache/
+
+# Ignore .run directory
+.run/
+
+_x.sw_emu.xilinx_u250_gen3x16_xdma_4_1_202210_1/
+
+v++_krnl_blowfish.log
+
+xcd.log
+
+.Xil
+
+blowfish
+
+_x/
+build_dir.sw_emu.xilinx_u250_gen3x16_xdma_4_1_202210_1/
+emconfig.json
+v++_krnl_blowfish.link.log
+v++_krnl_blowfish_250934.backup.log
+v++_krnl_blowfish_254670.backup.log
