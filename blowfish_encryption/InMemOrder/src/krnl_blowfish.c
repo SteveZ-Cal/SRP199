@@ -9,6 +9,7 @@
  * these arrays can be verified from the original source
  * https://www.schneier.com/code/constants.txt 
  */
+// #pragma HLS array_partition variable=sbox cyclic factor=4 dim=1
 uint32_t sbox[4][256] = {
 	{
 0xd1310ba6, 0x98dfb5ac, 0x2ffd72db, 0xd01adfb7, 0xb8e1afed, 0x6a267e96,
@@ -194,6 +195,7 @@ uint32_t sbox[4][256] = {
 }
 };
 
+// #pragma HLS array_partition variable=pbox complete
 uint32_t pbox[18] = {
 0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344, 0xa4093822, 0x299f31d0,
 0x082efa98, 0xec4e6c89, 0x452821e6, 0x38d01377, 0xbe5466cf, 0x34e90c6c,
@@ -230,13 +232,13 @@ blowfish_init(uint8_t key[], int padsize);
 // blowfish_decrypt(uint8_t crypt_data[], int padsize);
 
 
-
-#define MAX_DATA_SIZE (10*1024*1024) // 10MB
+#define MAX_DATA_SIZE (8*1024*1024) // 10MB
 
 
 uint32_t 
 feistel_function(uint32_t arg)
 {
+	#pragma HLS inline
 	uint32_t var = sbox[0][arg >> 24] + sbox[1][(uint8_t)(arg >> 16)];
 	return (var ^ sbox[2][(uint8_t)(arg >> 8)]) + sbox[3][(uint8_t)(arg)];
 }
@@ -244,12 +246,15 @@ feistel_function(uint32_t arg)
 void 
 _encrypt(uint32_t *left, uint32_t *right)
 {
+	#pragma HLS inline
 	uint32_t i, t;
 	for (i = 0; i < 16; i++) {
+		#pragma HLS pipeline II=1
 		*left  ^= pbox[i];
 		*right ^= feistel_function(*left);
 		
 		SWAP(*left, *right, t);
+		// printf("==>[%d] left: %x, right: %x\n", i, *left, *right);
 	}
 
 	SWAP(*left, *right, t);
@@ -260,8 +265,10 @@ _encrypt(uint32_t *left, uint32_t *right)
 void
 _decrypt(uint32_t *left, uint32_t *right)
 {
+	#pragma HLS inline
 	uint32_t i, t;
 	for (i = 17; i > 1; i--) {
+		#pragma HLS pipeline II=1
 		*left  ^= pbox[i];
 		*right ^= feistel_function(*left);
 
@@ -276,11 +283,15 @@ _decrypt(uint32_t *left, uint32_t *right)
 void
 blowfish_init(uint8_t key[], int size)
 {
+	#pragma HLS inline
 	int keysize = size, i, j;
 	uint32_t left = 0x00000000, right = 0x00000000;
 
 	/* subkey generation */
 	for (i = 0; i < 18; i++) {
+		// if(i == 0)
+		// 	printf("(before) pbox[%d]: %x\n", i, pbox[i]);
+		#pragma HLS pipeline II=1
 		pbox[i] ^= ((uint32_t)key[(i + 0) % keysize] << 24) | 
 		           ((uint32_t)key[(i + 1) % keysize] << 16) | 
 		           ((uint32_t)key[(i + 2) % keysize] <<  8) | 
@@ -289,6 +300,7 @@ blowfish_init(uint8_t key[], int size)
 
 	/* encrypt the zeroes, modifying the p-array and s-boxes accordingly */
 	for (i = 0; i <= 17; i += 2) {
+		#pragma HLS pipeline II=1
 		_encrypt(&left, &right);
 		pbox[i]     = left;
 		pbox[i + 1] = right;
@@ -296,17 +308,131 @@ blowfish_init(uint8_t key[], int size)
 
 	for (i = 0; i <= 3; i++) {
 		for (j = 0; j <= 254; j += 2) {
+			#pragma HLS pipeline II=1
 			_encrypt(&left, &right);
 			sbox[i][j]     = left;
 			sbox[i][j + 1] = right;
 		}
 	}
+
+	// printf("(after) pbox[0]: %x\n", pbox[0]);
 }
 
+
+void
+blowfish_encrypt(uint8_t data[], int padsize, uint8_t encrypted[])
+{
+	// uint8_t *encrypted = malloc(sizeof *encrypted * padsize);
+	// printf("padsize: %d\n", padsize);
+	// uint8_t encrypted[sizeof(uint8_t) * MAX_DATA_SIZE];
+	// printf("size of encrypted: %d\n", sizeof(encrypted));
+	// memset(encrypted, 0, sizeof(encrypted));
+
+	#pragma HLS inline
+	uint8_t byte;
+	uint32_t i, j, index = 0;
+	uint32_t left, right, datasize, factor;
+	uint64_t chunk;
+	
+	datasize = padsize;
+
+	// printf("blowfish_encrypt %s\n", data);
+
+	for (i = 0; i < datasize; i += 8) {
+		#pragma HLS pipeline II=1
+		/* make 8 byte chunks */
+		chunk = 0x0000000000000000;
+		// memmove(&chunk, data + i, sizeof(chunk)); 
+
+		// Manually copy bytes from data to chunk
+		for (j = 0; j < sizeof(chunk); j++) {
+			#pragma HLS UNROLL
+			((uint8_t*)&chunk)[j] = data[i + j];
+		}
+
+		// printf("chunk: %llx\n", chunk);
+
+		/* split into two 4 byte chunks */
+		left = right = 0x00000000;
+		left   = (uint32_t)(chunk >> 32);
+		right  = (uint32_t)(chunk);
+
+		// printf("(before) left: %x, right: %x\n", left, right);
+
+		_encrypt(&left, &right);
+
+		// printf("(after) left: %x, right: %x\n", left, right);
+
+		/* merge encrypted halves into a single 8 byte chunk again */
+		chunk = 0x0000000000000000;
+		chunk |= left; chunk <<= 32;
+		chunk |= right;
+		
+		/* append the chunk into the answer */
+		// memmove(encrypted + i, &chunk, sizeof(chunk));
+
+		// Manually copy bytes from chunk to encrypted
+		for (j = 0; j < sizeof(chunk); j++) {			
+			#pragma HLS UNROLL
+			encrypted[i + j] = ((uint8_t*)&chunk)[j];
+		}
+
+	}
+	// return encrypted;
+}
+
+
 // void
-// blowfish_encrypt(uint8_t data[], int padsize, uint8_t encrypted[])
+// blowfish_decrypt(uint8_t crypt_data[], int padsize, uint8_t decrypted[])
 // {
-// 	// uint8_t *encrypted = malloc(sizeof *encrypted * padsize);
+// 	// uint8_t *decrypted = malloc(sizeof *decrypted * padsize);
+// 	// uint8_t decrypted[MAX_DATA_SIZE];
+// 	#pragma HLS inline
+// 	uint8_t byte;
+// 	uint32_t i, j, index = 0;
+// 	uint32_t left, right, datasize, factor;
+// 	uint64_t chunk;
+	
+// 	datasize = padsize;
+
+// 	for (i = 0; i < datasize; i += 8) {
+// 		#pragma HLS pipeline II=1
+// 		chunk = 0x0000000000000000;
+// 		// memmove(&chunk, crypt_data + i, sizeof(chunk));
+
+// 		// Manually copy bytes from crypt_data to chunk
+// 		// for (j = 0; j < sizeof(chunk); j++) {
+// 		// 	((uint8_t*)&chunk)[j] = crypt_data[i + j];
+// 		// }
+
+// 		left = right = 0x00000000;
+// 		left   = (uint32_t)(chunk >> 32);
+// 		right  = (uint32_t)(chunk);
+
+// 		_decrypt(&left, &right);
+
+// 		chunk = 0x0000000000000000;
+// 		chunk |= left; chunk <<= 32;
+// 		chunk |= right;
+		
+// 		memmove(decrypted + i, &chunk, sizeof(chunk));
+
+// 		// Manually copy bytes from chunk to decrypted
+// 		// for (j = 0; j < sizeof(chunk); j++) {
+// 		// 	decrypted[i + j] = ((uint8_t*)&chunk)[j];
+// 		// }
+// 	}
+// 	// return decrypted;
+// }
+
+
+
+
+
+// uint8_t *
+// blowfish_encrypt(uint8_t data[], int padsize)
+// {
+// 	uint8_t *encrypted = malloc(sizeof *encrypted * padsize);
 // 	// uint8_t encrypted[sizeof(uint8_t) * MAX_DATA_SIZE];
 // 	// memset(encrypted, 0, sizeof(encrypted));
 
@@ -314,6 +440,8 @@ blowfish_init(uint8_t key[], int size)
 // 	uint32_t i, j, index = 0;
 // 	uint32_t left, right, datasize, factor;
 // 	uint64_t chunk;
+	
+// 	printf("blowfish_encrypt %s\n", data);
 	
 // 	datasize = padsize;
 
@@ -346,14 +474,14 @@ blowfish_init(uint8_t key[], int size)
 // 		/* append the chunk into the answer */
 // 		memmove(encrypted + i, &chunk, sizeof(chunk));
 // 	}
-// 	// return encrypted;
+// 	return encrypted;
 // }
 
-// // uint8_t *
-// void
-// blowfish_decrypt(uint8_t crypt_data[], int padsize, uint8_t decrypted[])
+
+// uint8_t *
+// blowfish_decrypt(uint8_t crypt_data[], int padsize)
 // {
-// 	// uint8_t *decrypted = malloc(sizeof *decrypted * padsize);
+// 	uint8_t *decrypted = malloc(sizeof *decrypted * padsize);
 // 	// uint8_t decrypted[MAX_DATA_SIZE];
 // 	uint8_t byte;
 // 	uint32_t i, j, index = 0;
@@ -378,91 +506,8 @@ blowfish_init(uint8_t key[], int size)
 		
 // 		memmove(decrypted + i, &chunk, sizeof(chunk));
 // 	}
-// 	// return decrypted;
+// 	return decrypted;
 // }
-
-
-
-
-
-uint8_t *
-blowfish_encrypt(uint8_t data[], int padsize)
-{
-	uint8_t *encrypted = malloc(sizeof *encrypted * padsize);
-	// uint8_t encrypted[sizeof(uint8_t) * MAX_DATA_SIZE];
-	// memset(encrypted, 0, sizeof(encrypted));
-
-	uint8_t byte;
-	uint32_t i, j, index = 0;
-	uint32_t left, right, datasize, factor;
-	uint64_t chunk;
-	
-	datasize = padsize;
-
-	for (i = 0; i < datasize; i += 8) {
-		/* make 8 byte chunks */
-		chunk = 0x0000000000000000;
-		memmove(&chunk, data + i, sizeof(chunk)); 
-		
-		// // Calculate the source pointer
-		// uint8_t *source_ptr = data + i;
-		// // Calculate the destination pointer
-		// uint64_t *destination_ptr = &chunk;
-		// // Perform the copy using a loop (since the size of chunk and uint64_t may differ)
-		// for (size_t j = 0; j < sizeof(chunk); j++) {
-		// 	*(uint8_t *)((uintptr_t)destination_ptr + j) = *(uint8_t *)((uintptr_t)source_ptr + j);
-		// }
-
-		/* split into two 4 byte chunks */
-		left = right = 0x00000000;
-		left   = (uint32_t)(chunk >> 32);
-		right  = (uint32_t)(chunk);
-
-		_encrypt(&left, &right);
-
-		/* merge encrypted halves into a single 8 byte chunk again */
-		chunk = 0x0000000000000000;
-		chunk |= left; chunk <<= 32;
-		chunk |= right;
-		
-		/* append the chunk into the answer */
-		memmove(encrypted + i, &chunk, sizeof(chunk));
-	}
-	return encrypted;
-}
-
-uint8_t *
-blowfish_decrypt(uint8_t crypt_data[], int padsize)
-{
-	uint8_t *decrypted = malloc(sizeof *decrypted * padsize);
-	// uint8_t decrypted[MAX_DATA_SIZE];
-	uint8_t byte;
-	uint32_t i, j, index = 0;
-	uint32_t left, right, datasize, factor;
-	uint64_t chunk;
-	
-	datasize = padsize;
-
-	for (i = 0; i < datasize; i += 8) {
-		chunk = 0x0000000000000000;
-		memmove(&chunk, crypt_data + i, sizeof(chunk));
-
-		left = right = 0x00000000;
-		left   = (uint32_t)(chunk >> 32);
-		right  = (uint32_t)(chunk);
-
-		_decrypt(&left, &right);
-
-		chunk = 0x0000000000000000;
-		chunk |= left; chunk <<= 32;
-		chunk |= right;
-		
-		memmove(decrypted + i, &chunk, sizeof(chunk));
-	}
-	return decrypted;
-}
-
-
 
 
 
@@ -472,7 +517,7 @@ blowfish_decrypt(uint8_t crypt_data[], int padsize)
 #define KEYSIZE   56
 #define DATASIZE  2048
 
-#define VERBOSE 1
+#define VERBOSE 0
 
 /* change these to change the ciphertext and the secret key */
 // #define PLAINTEXT "testing!"
@@ -503,32 +548,32 @@ void krnl_blowfish(uint8_t* plainText, int* inputLength, uint8_t* cipherText)
 
         blowfish_init(key, KPsize);
         
-        // blowfish_encrypt(plainText, Psize, cipherText);
-		cipherText = blowfish_encrypt(plainText, Psize);
-        
-		if(VERBOSE){
-        	printf("encrypted data: ");
-        
-			i = 0;
-			while (i < Psize) {
-				printf("%.2X%.2X%.2X%.2X ", cipherText[i], cipherText[i + 1],
-						cipherText[i + 2], cipherText[i + 3]);
-				printf("%.2X%.2X%.2X%.2X ", cipherText[i + 4], cipherText[i + 5],
-						cipherText[i + 6], cipherText[i + 7]);
-				i += 8;
-			}
-			printf("\n");
+        blowfish_encrypt(plainText, Psize, cipherText);
+		// cipherText = blowfish_encrypt(plainText, Psize);
 
-			// blowfish_decrypt(cipherText, Psize, decrypted);
-			decrypted = blowfish_decrypt(cipherText, Psize);
+		// if(VERBOSE){
+        // 	printf("encrypted data: ");
+        
+		// 	i = 0;
+		// 	while (i < Psize) {
+		// 		printf("%.2X%.2X%.2X%.2X ", cipherText[i], cipherText[i + 1],
+		// 				cipherText[i + 2], cipherText[i + 3]);
+		// 		printf("%.2X%.2X%.2X%.2X ", cipherText[i + 4], cipherText[i + 5],
+		// 				cipherText[i + 6], cipherText[i + 7]);
+		// 		i += 8;
+		// 	}
+		// 	printf("\n");
 
-			/* unpadding */ 
-			memset(data, 0, Psize);
-			memmove(data, decrypted, Osize);
+		// 	// blowfish_decrypt(cipherText, Psize, decrypted);
+		// 	decrypted = blowfish_decrypt(cipherText, Psize);
+
+		// 	/* unpadding */ 
+		// 	memset(data, 0, Psize);
+		// 	memmove(data, decrypted, Osize);
 			
-			printf("decrypted data: ");
-			printf("%s\n", decrypted);
+		// 	printf("decrypted data: ");
+		// 	printf("%s\n", decrypted);
 
-		}
+		// }
 
     }

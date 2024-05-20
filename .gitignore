@@ -16,3 +16,11 @@ emconfig.json
 v++_krnl_blowfish*
 _x*/
 build_dir*/
+
+xilinx_u250_gen3x16_xdma_4_1_202210_1*
+
+emulation_debug.log
+
+# Generated timing_results
+inputSizeOptions/
+timing_results_*.txt
