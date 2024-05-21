@@ -29,13 +29,14 @@
 #include <chrono>
 
 #include <stdio.h>
+#include <math.h>
 
 #define NUM_GLOBAL_WITEMS 1024
 
 #define NUM_LOOPS 1024 // number of times to run the test per input_size
 #define NUM_INPUTSIZES 18 // number of input sizes to test
 #define OUTPUT_FILE_PATH "results/timing_results.txt" // output size in bytes
-#define VERBOSE   0
+#define VERBOSE   0 // print the input and output
 
 static const int DATA_SIZE = 4096;
 
@@ -114,7 +115,7 @@ int main(int argc, char* argv[]) {
         #else
             deviceName = "xilinx_u250_gen3x16_xdma_4_1_202210_1";
         #endif
-        if (device.getInfo<CL_DEVICE_NAME>() != deviceName){
+        if (device.getInfo<CL_DEVICE_NAME>() == deviceName){
             // Creating Context and Command Queue for selected Device
             OCL_CHECK(err, context = cl::Context(device, nullptr, nullptr, nullptr, &err));
             OCL_CHECK(err, q = cl::CommandQueue(context, device, CL_QUEUE_PROFILING_ENABLE, &err));
@@ -134,13 +135,6 @@ int main(int argc, char* argv[]) {
     }
 
 
-    // create timer for each secitions to be timed
-    std::chrono::microseconds::rep kernl_execution_time = 0; // kernel execution time
-    std::chrono::microseconds::rep kernl_arg_time = 0;     // kernel argument setup time
-    std::chrono::microseconds::rep alloc_opencl_buffer_time = 0; // buffer allocation time
-    std::chrono::microseconds::rep buffer_to_fpga_time = 0; // buffer to fpga time
-    std::chrono::microseconds::rep fpga_to_buffer_time = 0; // fpga to buffer time
-
     // Verify the result
     int match = 0;
 
@@ -148,52 +142,36 @@ int main(int argc, char* argv[]) {
         std::cout << "Failed to program any device found, exit!\n";
         exit(EXIT_FAILURE);
     }
+        
+    
+    std::cout << "*****************************************" << std::endl;
+    std::cout << "Starting Blowfish Encryption (InMemOrder)" << std::endl;
+    std::cout << "*****************************************" << std::endl;
 
+    // create timer for each secitions to be timed
+    std::chrono::microseconds::rep kernl_execution_time[NUM_INPUTSIZES] = {0}; // kernel execution time
+    std::chrono::microseconds::rep kernl_arg_time[NUM_INPUTSIZES] = {0};     // kernel argument setup time
+    std::chrono::microseconds::rep alloc_opencl_buffer_time[NUM_INPUTSIZES] = {0}; // buffer allocation time
+    std::chrono::microseconds::rep buffer_to_fpga_time[NUM_INPUTSIZES] = {0}; // buffer to fpga time
+    std::chrono::microseconds::rep fpga_to_buffer_time[NUM_INPUTSIZES] = {0}; // fpga to buffer time
 
-    for (uint32_t i = 0; i < 3; i++){
+    for (uint32_t i = 0; i < NUM_INPUTSIZES; i++){
 
         size_t inputSize = inputSizeOptions[i];
 
-        // run the measurement 1024 times and report the total for each input after the initial programming
-        for (uint32_t curr_loop = 0; curr_loop < NUM_LOOPS; curr_loop++) {
+        uint8_t* ptr_plainText;
+        posix_memalign((void**)&ptr_plainText, 4096, inputSize);
 
-            // Get the alloc_opencl_buffer starting time point
-            auto alloc_opencl_buffer_start = std::chrono::steady_clock::now();
-            // These commands will allocate memory on the Device. The cl::Buffer objects can
-            // be used to reference the memory locations on the device.
-            OCL_CHECK(err, cl::Buffer buffer_plainText(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-            OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-            OCL_CHECK(err, cl::Buffer buffer_cipherText(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-            // Get the kernl_arg ending time point
-            auto alloc_opencl_buffer_end = std::chrono::steady_clock::now();
-            auto alloc_opencl_buffer = std::chrono::duration_cast<std::chrono::microseconds>(alloc_opencl_buffer_end - alloc_opencl_buffer_start);
-            alloc_opencl_buffer_time += alloc_opencl_buffer.count();
+        uint8_t* ptr_cipherText;
+        posix_memalign((void**)&ptr_cipherText, 4096, inputSize);
 
-            // Get the kernl_arg starting time point
-            auto kernl_arg_start = std::chrono::steady_clock::now();
-            // set the kernel Arguments
-            int narg = 0;
-            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_plainText));
-            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_inputLength));
-            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_cipherText));
-            // Get the kernl_arg ending time point
-            auto kernl_arg_end = std::chrono::steady_clock::now();
-            auto kernl_arg = std::chrono::duration_cast<std::chrono::microseconds>(kernl_arg_end - kernl_arg_start);
-            kernl_arg_time += kernl_arg.count();
+        // size_t* ptr_inputLength;
+        // posix_memalign((void**)&ptr_inputLength, 4096, sizeof(size_t));
+        // *ptr_inputLength = inputSize;
 
-            // We then need to map our OpenCL buffers to get the pointers
-            uint8_t* ptr_plainText;
-            int* ptr_inputLength;
-            uint8_t* ptr_cipherText;
+        int inputLength = inputSize;
 
-            OCL_CHECK(err,
-                    ptr_plainText = (uint8_t*)q.enqueueMapBuffer(buffer_plainText, CL_TRUE, CL_MAP_WRITE, 0, size_in_bytes, NULL, NULL, &err));
-            OCL_CHECK(err,
-                    ptr_inputLength = (int*)q.enqueueMapBuffer(buffer_inputLength, CL_TRUE, CL_MAP_WRITE, 0, size_in_bytes, NULL, NULL, &err));       
-            OCL_CHECK(err, 
-                    ptr_cipherText = (uint8_t*)q.enqueueMapBuffer(buffer_cipherText, CL_TRUE, CL_MAP_READ, 0, size_in_bytes, NULL, NULL, &err));
-
-            /* Read plaintext from file */
+        /* Read plaintext from file */
             FILE *plaintextFile = fopen("inputs/plaintext.txt", "rb");
             if (plaintextFile == NULL) {
                 perror("Error opening plaintext file");
@@ -209,26 +187,69 @@ int main(int argc, char* argv[]) {
             fread(ptr_plainText, sizeof(uint8_t), inputSize, plaintextFile);
             fclose(plaintextFile);
 
-            // set input length
-            *ptr_inputLength = inputSize;
+        // run the measurement 1024 times and report the total for each input after the initial programming
+        for (uint32_t curr_loop = 0; curr_loop < NUM_LOOPS; curr_loop++) {
+
+            if (VERBOSE)
+                printf("Running test for input size: %s\n", inputSizeStrings[i].c_str());
+
+            size_in_bytes = inputSize;
+
+            // Get the alloc_opencl_buffer starting time point
+            auto alloc_opencl_buffer_start = std::chrono::steady_clock::now();
+            // These commands will allocate memory on the Device. The cl::Buffer objects can
+            // be used to reference the memory locations on the device.
+            OCL_CHECK(err, cl::Buffer buffer_plainText(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, size_in_bytes, ptr_plainText, &err));
+            // OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
+            // OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(size_t), ptr_inputLength, &err));
+            OCL_CHECK(err, cl::Buffer buffer_cipherText(context, CL_MEM_USE_HOST_PTR | CL_MEM_WRITE_ONLY, size_in_bytes, ptr_cipherText, &err));
+            // Get the kernl_arg ending time point
+            auto alloc_opencl_buffer_end = std::chrono::steady_clock::now();
+            auto alloc_opencl_buffer = std::chrono::duration_cast<std::chrono::microseconds>(alloc_opencl_buffer_end - alloc_opencl_buffer_start);
+            alloc_opencl_buffer_time[i] += alloc_opencl_buffer.count();
+
+            // Get the kernl_arg starting time point
+            auto kernl_arg_start = std::chrono::steady_clock::now();
+            // set the kernel Arguments
+            int narg = 0;
+            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_plainText));
+            // OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_inputLength));
+            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, inputLength));
+            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_cipherText));
+            // Get the kernl_arg ending time point
+            auto kernl_arg_end = std::chrono::steady_clock::now();
+            auto kernl_arg = std::chrono::duration_cast<std::chrono::microseconds>(kernl_arg_end - kernl_arg_start);
+            kernl_arg_time[i] += kernl_arg.count();
+
+            // verify the input
+            if(VERBOSE && curr_loop == NUM_LOOPS - 1){
+                printf("inputSize: %d\n", inputSize);
+                for (int i = 0; i < inputSize; i++) {
+                    std::cout<<ptr_plainText[i];
+                }
+                printf("\n");
+            }
 
             // Get the buffer_to_fpga starting time point
             auto buffer_to_fpga_start = std::chrono::steady_clock::now();
             // Data will be migrated to kernel space
-            OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_plainText, buffer_inputLength}, 0 /* 0 means from host*/));
+            // OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_plainText, buffer_inputLength}, 0 /* 0 means from host*/));
+            OCL_CHECK(err, q.enqueueMigrateMemObjects({buffer_plainText}, 0 /* 0 means from host*/));
+            OCL_CHECK(err, q.finish());
             // Get the buffer_to_fpga ending time point
             auto buffer_to_fpga_end = std::chrono::steady_clock::now();
             auto buffer_to_fpga = std::chrono::duration_cast<std::chrono::microseconds>(buffer_to_fpga_end - buffer_to_fpga_start);
-            buffer_to_fpga_time += buffer_to_fpga.count();
+            buffer_to_fpga_time[i] += buffer_to_fpga.count();
 
             // Get the kernl_execution starting time point
             auto kernl_execution_start = std::chrono::steady_clock::now();
             // Launch the Kernel 
             OCL_CHECK(err, err = q.enqueueTask(krnl_blowfish));
+            OCL_CHECK(err, q.finish());
             // Get the kernl_execution ending time point
             auto kernl_execution_end = std::chrono::steady_clock::now();
             auto kernl_execution = std::chrono::duration_cast<std::chrono::microseconds>(kernl_execution_end - kernl_execution_start);
-            kernl_execution_time += kernl_execution.count();
+            kernl_execution_time[i] += kernl_execution.count();
 
             // Get the fpga_to_buffer starting time point
             auto fpga_to_buffer_start = std::chrono::steady_clock::now();
@@ -236,79 +257,99 @@ int main(int argc, char* argv[]) {
             // order to view the results. This call will transfer the data from FPGA to
             // source_results vector
             OCL_CHECK(err, q.enqueueMigrateMemObjects({buffer_cipherText}, CL_MIGRATE_MEM_OBJECT_HOST));
+            OCL_CHECK(err, q.finish());
+
             // Get the fpga_to_buffer ending time point
             auto fpga_to_buffer_end = std::chrono::steady_clock::now();
             auto fpga_to_buffer = std::chrono::duration_cast<std::chrono::microseconds>(fpga_to_buffer_end - fpga_to_buffer_start);
-            fpga_to_buffer_time += fpga_to_buffer.count();
+            fpga_to_buffer_time[i] += fpga_to_buffer.count();
 
-            OCL_CHECK(err, q.finish());
+            // verify the output
+            if(VERBOSE && curr_loop == NUM_LOOPS - 1){
+                int iter = 0;
+                uint32_t Psize = ceil(inputSize / 8.0) * 8;
+                printf("Iteraion: [%d]\n", curr_loop);
+                while (iter < Psize) {
+                    printf("%.2X%.2X%.2X%.2X ", ptr_cipherText[iter], ptr_cipherText[iter + 1],
+                            ptr_cipherText[iter + 2], ptr_cipherText[iter + 3]);
+                    printf("%.2X%.2X%.2X%.2X ", ptr_cipherText[iter + 4], ptr_cipherText[iter + 5],
+                            ptr_cipherText[iter + 6], ptr_cipherText[iter + 7]);
+                    iter += 8;
+                }
+                printf("\n");
+            }
 
-            // if ((unsigned int)*ptr_outL == 0xDF333FD2L && (unsigned int)*ptr_outR == 0x30A71BB4L) {
-            //     if (VERBOSE)
-            //         printf("Test encryption success!!\n");
-            //     match = 0;
-            // }
-
-            OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_plainText, ptr_plainText));
-            OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_inputLength, ptr_inputLength));
-            OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_cipherText, ptr_cipherText));
-            OCL_CHECK(err, err = q.finish());
-
-            // if(VERBOSE)
-            //     std::cout << "TEST " << (match ? "FAILED" : "PASSED") << std::endl;   
 
             } // end of loop
 
         // TIMTING TEST RESULT
         std::cout << "\nTIMING TEST RESULT: [" << inputSizeStrings[i]<< "]"<<std::endl;
         std::cout << "=====================================================================" << std::endl;
-        std::cout << "Alloc Opencl Buffer Time: " << alloc_opencl_buffer_time << " microseconds" << std::endl;
+        std::cout << "Alloc Opencl Buffer Time: " << alloc_opencl_buffer_time[i] << " microseconds" << std::endl;
         std::cout << "=====================================================================" << std::endl;
-        std::cout << "Kernel Argument Setting Time: " << kernl_arg_time << " microseconds" << std::endl;
+        std::cout << "Kernel Argument Setting Time: " << kernl_arg_time[i] << " microseconds" << std::endl;
         std::cout << "=====================================================================" << std::endl;
-        std::cout << "Buffer to FPGA Time: " << buffer_to_fpga_time << " microseconds" << std::endl;
+        std::cout << "Buffer to FPGA Time: " << buffer_to_fpga_time[i] << " microseconds" << std::endl;
         std::cout << "=====================================================================" << std::endl;
-        std::cout << "Kernel Execution Time: " << kernl_execution_time << " microseconds" << std::endl;
+        std::cout << "Kernel Execution Time: " << kernl_execution_time[i] << " microseconds" << std::endl;
         std::cout << "=====================================================================" << std::endl;
-        std::cout << "FPGA to Buffer Time: " << fpga_to_buffer_time << " microseconds" << std::endl;
+        std::cout << "FPGA to Buffer Time: " << fpga_to_buffer_time[i] << " microseconds" << std::endl;
         std::cout << "=====================================================================\n" << std::endl;
 
+        free(ptr_plainText);
+        free(ptr_cipherText);
+        // free(ptr_inputLength);
+    }
 
-        // Open a file for writing
-        FILE *outputFile = fopen(OUTPUT_FILE_PATH, "r+");
-        if (outputFile == NULL) {
-            printf("Failed to open the output file.\n");
-            return 1;
-        }
+    // Open a file for writing
+    FILE *outputFile = fopen(OUTPUT_FILE_PATH, "w");
+    if (outputFile == NULL) {
+        printf("Failed to open the output file.\n");
+        return 1;
+    }
 
-        if (is_file_empty(outputFile)) {
-            printf("File is empty. Opening in write mode.\n");
-            fclose(outputFile); // Close file before reopening
-            outputFile = fopen(OUTPUT_FILE_PATH, "w"); // Open file in write mode
-        } else {
-            printf("File is not empty. Opening in append mode.\n");
-            fclose(outputFile); // Close file before reopening
-            outputFile = fopen(OUTPUT_FILE_PATH, "a"); // Open file in append mode
-        }
+    fprintf(outputFile, "Data Size\tAlloc OpenCL Buffer Time (μs)\tKernel Argument Setting Time (μs)\tBuffer to FPGA Time (μs)\tKernel Execution Time (μs)\tFPGA to Buffer Time (μs)\n");
 
-        // Write results to the file
-        fprintf(outputFile, "TIMING TEST RESULT [%s]:\n", inputSizeStrings[i].c_str());
-        fprintf(outputFile, "=====================================================================\n");
-        fprintf(outputFile, "Alloc Opencl Buffer Time: %ld microseconds\n", alloc_opencl_buffer_time);
-        fprintf(outputFile, "=====================================================================\n");
-        fprintf(outputFile, "Kernel Argument Setting Time: %ld microseconds\n", kernl_arg_time);
-        fprintf(outputFile, "=====================================================================\n");
-        fprintf(outputFile, "Buffer to FPGA Time: %ld microseconds\n", buffer_to_fpga_time);
-        fprintf(outputFile, "=====================================================================\n");
-        fprintf(outputFile, "Kernel Execution Time: %ld microseconds\n", kernl_execution_time);
-        fprintf(outputFile, "=====================================================================\n");
-        fprintf(outputFile, "FPGA to Buffer Time: %ld microseconds\n", fpga_to_buffer_time);
-        fprintf(outputFile, "=====================================================================\n\n");
+    // Write results to the file
+    for (int i = 0; i < NUM_INPUTSIZES; ++i) {    
+        // Write absolute times
+        fprintf(outputFile, "%s\t%ld\t%ld\t%ld\t%ld\t%ld\n",
+            inputSizeStrings[i].c_str(),
+            alloc_opencl_buffer_time[i],
+            kernl_arg_time[i],
+            buffer_to_fpga_time[i],
+            kernl_execution_time[i],
+            fpga_to_buffer_time[i]);
+    }
 
-        // Close the file
-        fclose(outputFile);
+    // Write the header
+    fprintf(outputFile, "Data Size\tAlloc OpenCL Buffer Time (%%)\tKernel Argument Setting Time (%%)\tBuffer to FPGA Time (%%)\tKernel Execution Time (%%)\tFPGA to Buffer Time (%%)\n");
+
+    // Write the results
+    for (int i = 0; i < NUM_INPUTSIZES; ++i) {
+        // Calculate total time
+        auto total_time = alloc_opencl_buffer_time[i] + kernl_arg_time[i] + buffer_to_fpga_time[i] + kernl_execution_time[i] + fpga_to_buffer_time[i];
+
+        // Calculate percentages
+        double alloc_opencl_buffer_percentage = (double)alloc_opencl_buffer_time[i] / total_time * 100;
+        double kernl_arg_percentage = (double)kernl_arg_time[i] / total_time * 100;
+        double buffer_to_fpga_percentage = (double)buffer_to_fpga_time[i] / total_time * 100;
+        double kernl_execution_percentage = (double)kernl_execution_time[i] / total_time * 100;
+        double fpga_to_buffer_percentage = (double)fpga_to_buffer_time[i] / total_time * 100;
+
+        // Write percentages
+        fprintf(outputFile, "%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n",
+                inputSizeStrings[i].c_str(),
+                alloc_opencl_buffer_percentage,
+                kernl_arg_percentage,
+                buffer_to_fpga_percentage,
+                kernl_execution_percentage,
+                fpga_to_buffer_percentage);
 
     }
+
+    // Close the file
+    fclose(outputFile);
             
     return (match ? EXIT_FAILURE : EXIT_SUCCESS);  
 
