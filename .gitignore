@@ -24,3 +24,5 @@ emulation_debug.log
 # Generated timing_results
 inputSizeOptions/
 timing_results_*.txt
+
+inputs/

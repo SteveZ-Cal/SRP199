@@ -36,7 +36,7 @@
 #define NUM_LOOPS 1024 // number of times to run the test per input_size
 #define NUM_INPUTSIZES 18 // number of input sizes to test
 #define OUTPUT_FILE_PATH "results/timing_results.txt" // output size in bytes
-#define VERBOSE   0
+#define VERBOSE   0 // print the input and output
 
 static const int DATA_SIZE = 4096;
 
@@ -165,9 +165,11 @@ int main(int argc, char* argv[]) {
         uint8_t* ptr_cipherText;
         posix_memalign((void**)&ptr_cipherText, 4096, inputSize);
 
-        size_t* ptr_inputLength;
-        posix_memalign((void**)&ptr_inputLength, 4096, sizeof(size_t));
-        *ptr_inputLength = inputSize;
+        // size_t* ptr_inputLength;
+        // posix_memalign((void**)&ptr_inputLength, 4096, sizeof(size_t));
+        // *ptr_inputLength = inputSize;
+
+        int inputLength = inputSize;
 
         /* Read plaintext from file */
             FILE *plaintextFile = fopen("inputs/plaintext.txt", "rb");
@@ -199,7 +201,7 @@ int main(int argc, char* argv[]) {
             // be used to reference the memory locations on the device.
             OCL_CHECK(err, cl::Buffer buffer_plainText(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, size_in_bytes, ptr_plainText, &err));
             // OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-            OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(size_t), ptr_inputLength, &err));
+            // OCL_CHECK(err, cl::Buffer buffer_inputLength(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(size_t), ptr_inputLength, &err));
             OCL_CHECK(err, cl::Buffer buffer_cipherText(context, CL_MEM_USE_HOST_PTR | CL_MEM_WRITE_ONLY, size_in_bytes, ptr_cipherText, &err));
             // Get the kernl_arg ending time point
             auto alloc_opencl_buffer_end = std::chrono::steady_clock::now();
@@ -211,7 +213,8 @@ int main(int argc, char* argv[]) {
             // set the kernel Arguments
             int narg = 0;
             OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_plainText));
-            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_inputLength));
+            // OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_inputLength));
+            OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, inputLength));
             OCL_CHECK(err, err = krnl_blowfish.setArg(narg++, buffer_cipherText));
             // Get the kernl_arg ending time point
             auto kernl_arg_end = std::chrono::steady_clock::now();
@@ -230,7 +233,8 @@ int main(int argc, char* argv[]) {
             // Get the buffer_to_fpga starting time point
             auto buffer_to_fpga_start = std::chrono::steady_clock::now();
             // Data will be migrated to kernel space
-            OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_plainText, buffer_inputLength}, 0 /* 0 means from host*/));
+            // OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_plainText, buffer_inputLength}, 0 /* 0 means from host*/));
+            OCL_CHECK(err, q.enqueueMigrateMemObjects({buffer_plainText}, 0 /* 0 means from host*/));
             OCL_CHECK(err, q.finish());
             // Get the buffer_to_fpga ending time point
             auto buffer_to_fpga_end = std::chrono::steady_clock::now();
@@ -294,7 +298,7 @@ int main(int argc, char* argv[]) {
 
         free(ptr_plainText);
         free(ptr_cipherText);
-        free(ptr_inputLength);
+        // free(ptr_inputLength);
     }
 
     // Open a file for writing
