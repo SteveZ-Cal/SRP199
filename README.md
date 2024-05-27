@@ -12,10 +12,10 @@ This project focuses on minimizing data transfer overhead in FPGA-based systems.
 2. Image Histogram Equalization
 
 For each part, we conduct tests using the following modes:
-- InMemOrder
-- HostedInOrder
-- OutOfMemOrder
-- KernelFlex
+- **InMemOrder**: Testing in-memory order.
+- **HostedInOrder**: Testing hosted in-memory order.
+- **OutMemOrder**: Testing out-of-memory order.
+- **KernelFlex**: Testing host memory kernl customization.
 
 ## Table of Contents
 
@@ -47,7 +47,7 @@ For each part, we conduct tests using the following modes:
     |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
-    |-- OutOfMemOrder/
+    |-- OutMemOrder/
     |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
