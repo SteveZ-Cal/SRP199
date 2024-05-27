@@ -1,0 +1,8 @@
+Data Size	Alloc OpenCL Buffer Time (μs)	Kernel Argument Setting Time (μs)	Buffer to FPGA Time (μs)	Kernel Execution Time (μs)	FPGA to Buffer Time (μs)
+64 B	41	6	191	927	77
+128 B	40	37	30	316	50
+256 B	34	27	35	314	38
+Data Size	Alloc OpenCL Buffer Time (%)	Kernel Argument Setting Time (%)	Buffer to FPGA Time (%)	Kernel Execution Time (%)	FPGA to Buffer Time (%)
+64 B	3.30	0.48	15.38	74.64	6.20
+128 B	8.46	7.82	6.34	66.81	10.57
+256 B	7.59	6.03	7.81	70.09	8.48
