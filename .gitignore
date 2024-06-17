@@ -10,10 +10,13 @@ xcd.log
 
 blowfish
 
+histogram_equalization
+
 emconfig.json
 
 # Ignore v++ generated
 v++_krnl_blowfish*
+v++_krnl_histogram_equalization*
 _x*/
 build_dir*/
 

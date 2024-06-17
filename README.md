@@ -15,7 +15,10 @@ For each part, we conduct tests using the following modes:
 - **InMemOrder**: Testing in-memory order.
 - **HostedInOrder**: Testing hosted in-memory order.
 - **OutMemOrder**: Testing out-of-memory order.
-- **KernelFlex**: Testing host memory kernl customization.
+- **HostedOutOrder**: Testing hosted out-of-memory order.
+- **UnOptimized**: Testing in-memory order without hls kernel optimization.
+- **HMLib**: Efficient Data Streaming Transfer for HLS using Host Memory.
+
 
 ## Table of Contents
 
@@ -33,7 +36,15 @@ For each part, we conduct tests using the following modes:
 |   |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
-|   `-- KernelFlex/
+|   |-- HostedOutOrder/
+|   |   |-- inputs/
+|   |   |-- results/
+|   |   `-- src/
+|   |-- UnOptimized/
+|   |   |-- inputs/
+|   |   |-- results/
+|   |   `-- src/
+|   `-- HMLib/
 |       |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
@@ -43,7 +54,7 @@ For each part, we conduct tests using the following modes:
     |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
-    |-- HostedInOrder/
+    |-- HostedOutOrder/
     |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
@@ -51,7 +62,11 @@ For each part, we conduct tests using the following modes:
     |   |-- inputs/
 |   |   |-- results/
 |   |   `-- src/
-    `-- KernelFlex/
+|   |-- UnOptimized/
+|   |   |-- inputs/
+|   |   |-- results/
+|   |   `-- src/
+    `-- HMLib/
         |-- inputs/
         |-- results/
         `-- src/
@@ -68,8 +83,13 @@ For each part, we conduct tests using the following modes:
 I would like to acknowledge the following project that was instrumental in the development of this repository:
 
 - **Blowfish Implementation by Prophet6250**  
-  This repository provided a foundational implementation of the Blowfish algorithm, which was crucial for my project's cryptographic functionality.  
-  Repository: [prophet6250/blowfish-implementation](https://github.com/prophet6250/blowfish-implementation)  
-  License: MIT
+    This repository provided a foundational implementation of the Blowfish algorithm, which was crucial for my project's cryptographic functionality.  s
+    Repository: [prophet6250/blowfish-implementation](https://github.com/prophet6250/blowfish-implementation)  
+    License: MIT
+
+- **Histogram Equalization Specification Demo by DavidLee528**  
+    This repository offered a comprehensive implementation of histogram equalization and specification techniques, essential for the image processing aspects of my project.  
+    Repository: [DavidLee528/Histogram-Equalization-Specification-Demo](https://github.com/DavidLee528/Histogram-Equalization-Specification-Demo)  
+    License: Unspecified
 
 I am grateful for the efforts of the original authors and contributors. Their work made my project possible.
