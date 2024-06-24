@@ -28,3 +28,16 @@ emulation_debug.log
 inputSizeOptions/
 timing_results_*.txt
 
+# HMLib related data files and others
+data_dir/
+xsa.xml
+workload*
+v++*
+FPGArpt
+.DS_Store
+ext_metadata.json
+*.o
+# host executable file for hw_emu
+test.hw_emu.out
+# host executable file for hw
+test.real.out
